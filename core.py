@@ -4,11 +4,24 @@ from langchain.chains.retrieval import create_retrieval_chain
 from langchain.chains.combine_documents import create_stuff_documents_chain
 from langchain_pinecone import PineconeVectorStore
 from langchain.prompts import ChatPromptTemplate
+from langchain.output_parsers import PydanticOutputParser 
+from pydantic import BaseModel, Field
+from typing import Dict
 from dotenv import load_dotenv
 
 load_dotenv()
 
 def run_llm(prompt):
+    class formatResponse(BaseModel):
+        answer: str = Field(description="Jawaban atas pertanyaan user berdasarkan dokumen")
+        bab: str = Field(description="BAB dari mana informasi diambil")
+        subbab: str = Field(description="SUB BAB dari mana informasi diambil")
+
+        def to_dict(self) -> Dict[str,any]:
+            return{"answer":self.answer,"bab":self.bab,"subbab":self.subbab}
+        
+    parser = PydanticOutputParser(pydantic_object=formatResponse)
+    
     retrieval_prompt = ChatPromptTemplate.from_messages([
     ("system", 
      "Anda adalah asisten AI yang menjawab pertanyaan berdasarkan isi skripsi akademik. "
@@ -21,10 +34,9 @@ def run_llm(prompt):
     ("human", 
      "Pertanyaan: {input}\n\n"
      "Referensi dokumen:\n{context}\n\n"
-     "Jawab pertanyaan di atas dan sebutkan informasi berasal dari BAB apa dan sub bab apa. "
      "Contoh format jawaban:\n"
-     "\"Jawaban Anda di sini... (Sumber: BAB III - Sub bab 3.1)\"")
-])
+     "\n{format_instructions}")
+]).partial(format_instructions=parser.get_format_instructions())
 
 
     # retrieval_qa_chat_prompt = hub.pull("langchain-ai/retrieval-qa-chat")
@@ -35,9 +47,10 @@ def run_llm(prompt):
     stuff_documents_chain = create_stuff_documents_chain(chat, retrieval_prompt)
     qa = create_retrieval_chain(retriever=vectorstore.as_retriever(),combine_docs_chain=stuff_documents_chain)
     result = qa.invoke(input={"input": prompt})
-    return result
+    parsed = parser.parse(result["answer"])
+    return parsed
 
 if __name__ == "__main__":
     tanya = input("Tanyakan Sesuatu : ")
     res = run_llm(tanya)
-    print(res["answer"])
+    print(res)
